@@ -3,8 +3,6 @@ name: SIAKAD Selenium Test Suite
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -19,29 +17,27 @@ jobs:
           MYSQL_DATABASE: "11732"
         ports:
           - 3306:3306
-        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=5
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
 
     steps:
-      # ── 1. Checkout ───────────────────────────────────────────────
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # ── 2. Import Database ────────────────────────────────────────
-      - name: Import Database SIAKAD
-        run: |
-          mysql -h 127.0.0.1 -u root -proot "11732" < 11732.sql
+      - name: Import Database
+        run: mysql -h 127.0.0.1 -u root -proot 11732 < 11732.sql
 
-      # ── 3. Setup Python ───────────────────────────────────────────
       - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Install Python dependencies
-        run: |
-          pip install pytest pytest-html selenium webdriver-manager requests
+        run: pip install pytest pytest-html selenium webdriver-manager requests
 
-      # ── 4. Setup PHP + Apache ─────────────────────────────────────
       - name: Install PHP 8.1 dan Apache
         run: |
           sudo apt-get update -qq
@@ -59,13 +55,11 @@ jobs:
           PHPEOF
           sudo systemctl restart apache2
           sleep 2
-          curl -s -o /dev/null -w "HTTP Status: %{http_code}\n" http://localhost/webakademik/login.php
+          curl -s -o /dev/null -w "HTTP: %{http_code}\n" http://localhost/webakademik/login.php
 
-      # ── 5. Setup Chrome ───────────────────────────────────────────
       - name: Setup Chrome
         uses: browser-actions/setup-chrome@v1
 
-      # ── 6. Jalankan Test ──────────────────────────────────────────
       - name: Run Selenium Tests
         run: |
           mkdir -p reports
@@ -74,7 +68,6 @@ jobs:
             --self-contained-html \
             --tb=short
 
-      # ── 7. Upload Laporan ─────────────────────────────────────────
       - name: Upload Test Report
         uses: actions/upload-artifact@v4
         if: always()
