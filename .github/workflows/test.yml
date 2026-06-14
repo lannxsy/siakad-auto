@@ -1,144 +1,81 @@
-name: 🧪 Pengujian Otomatis SIAKAD (Selenium + Chrome)
+name: SIAKAD Selenium Test Suite
 
-# ─────────────────────────────────────────────────────────────
-# Trigger: jalankan setiap push ke branch main/master,
-#          dan setiap pull request ke branch tersebut.
-# ─────────────────────────────────────────────────────────────
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [ main ]
   pull_request:
-    branches:
-      - main
-      - master
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-  selenium-test:
-    name: 🚀 Jalankan Selenium Test Suite
-    runs-on: ubuntu-latest
-
-    # ── Service: MySQL ────────────────────────────────────────
-    services:
-      mysql:
-        image: mysql:8.0
-        env:
-          MYSQL_ROOT_PASSWORD: root
-          MYSQL_DATABASE: siakad_db
-          MYSQL_USER: siakad_user
-          MYSQL_PASSWORD: siakad_pass
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping --silent"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
+  test:
+    runs-on: ubuntu-22.04   # pakai 22.04 agar php8.1 tersedia
 
     steps:
-      # ── 1. Checkout kode ──────────────────────────────────
-      - name: 📥 Checkout Repository
+      # ── 1. Checkout ───────────────────────────────────────────────
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # ── 2. Setup PHP + Apache ─────────────────────────────
-      - name: 🐘 Install PHP 8.1 dan Ekstensi
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y \
-            php8.1 php8.1-cli php8.1-mysql php8.1-mbstring \
-            php8.1-xml php8.1-curl libapache2-mod-php8.1 \
-            apache2 -qq
-
-      - name: ⚙️ Konfigurasi Apache untuk SIAKAD
-        run: |
-          # Salin file SIAKAD ke document root Apache
-          sudo cp -r webakademik /var/www/html/webakademik
-          sudo chown -R www-data:www-data /var/www/html/webakademik
-          sudo chmod -R 755 /var/www/html/webakademik
-
-          # Aktifkan Apache mod_rewrite
-          sudo a2enmod rewrite
-          sudo systemctl restart apache2
-
-          # Verifikasi Apache berjalan
-          curl -s http://localhost/webakademik/index.php | head -5
-
-      # ── 3. Import Database ────────────────────────────────
-      - name: 🗄️ Import Database SIAKAD
-        run: |
-          # Tunggu MySQL benar-benar siap
-          for i in {1..30}; do
-            mysqladmin ping -h 127.0.0.1 -u root -proot --silent && break
-            echo "Menunggu MySQL... ($i)"
-            sleep 2
-          done
-
-          # Import schema dan data awal
-          mysql -h 127.0.0.1 -u root -proot siakad_db < siakad.sql
-
-          # Update koneksi.php agar mengarah ke DB di GitHub Actions
-          sudo sed -i 's/localhost/127.0.0.1/g' /var/www/html/webakademik/koneksi.php
-
-      # ── 4. Seed data akun guru & siswa untuk testing ──────
-      - name: 🌱 Seed Data Akun Testing
-        run: |
-          mysql -h 127.0.0.1 -u root -proot siakad_db <<'SQL'
-            INSERT IGNORE INTO akun (induk, password, level)
-            VALUES
-              ('guru01',  '123456', 'guru'),
-              ('siswa01', '123456', 'siswa');
-          SQL
-
-      # ── 5. Setup Python ───────────────────────────────────
-      - name: 🐍 Setup Python 3.11
+      # ── 2. Setup Python ───────────────────────────────────────────
+      - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
 
-      - name: 📦 Install Dependensi Python
+      - name: Install Python dependencies
         run: |
-          pip install -r requirements.txt
+          python -m pip install --upgrade pip
+          pip install pytest pytest-html selenium webdriver-manager requests
 
-      # ── 6. Setup Chrome + ChromeDriver ───────────────────
-      - name: 🌐 Install Google Chrome
+      # ── 3. Setup MySQL ────────────────────────────────────────────
+      - name: Start MySQL
         run: |
-          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
-          echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" \
-            | sudo tee /etc/apt/sources.list.d/google-chrome.list
+          sudo systemctl start mysql
+          sudo mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY 'root'; FLUSH PRIVILEGES;"
+          sudo mysql -u root -proot -e "CREATE DATABASE IF NOT EXISTS \`11732\`;"
+          mysql -u root -proot 11732 < 11732.sql
+
+      # ── 4. Setup PHP + Apache ─────────────────────────────────────
+      - name: Install PHP 8.1 dan Apache
+        run: |
           sudo apt-get update -qq
-          sudo apt-get install -y google-chrome-stable
-          google-chrome --version
+          sudo apt-get install -y apache2 php8.1 php8.1-mysql php8.1-mysqli libapache2-mod-php8.1
 
-      # ── 7. Jalankan Pytest + Selenium ────────────────────
-      - name: 🧪 Jalankan Semua Test Case
-        env:
-          BASE_URL: "http://localhost/webakademik"
-          GURU_INDUK: "guru01"
-          GURU_PASSWORD: "123456"
-          SISWA_INDUK: "siswa01"
-          SISWA_PASSWORD: "123456"
-          DISPLAY: ":99"        # Virtual display untuk headless Chrome
+      - name: Deploy SIAKAD ke Apache
         run: |
-          # Mulai Xvfb (virtual display — opsional, karena headless sudah aktif)
-          Xvfb :99 -screen 0 1280x900x24 &
+          sudo cp -r webakademik /var/www/html/webakademik
+          sudo chown -R www-data:www-data /var/www/html/webakademik
+          sudo bash -c 'cat > /var/www/html/webakademik/koneksi.php << "PHPEOF"
+          <?php
+          \$konek = mysqli_connect("127.0.0.1", "root", "root", "11732");
+          if (!\$konek) { die("Koneksi gagal: " . mysqli_connect_error()); }
+          ?>
+          PHPEOF'
+          sudo systemctl restart apache2
+          sleep 2
+          curl -s -o /dev/null -w "HTTP Status: %{http_code}\n" http://localhost/webakademik/login.php
 
-          # Jalankan semua test dengan laporan HTML
-          pytest tests/ \
+      # ── 5. Setup Chrome ───────────────────────────────────────────
+      - name: Setup Chrome
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Verify Chrome
+        run: google-chrome --version
+
+      # ── 6. Jalankan Test ──────────────────────────────────────────
+      - name: Run Selenium Tests
+        run: |
+          mkdir -p reports
+          python -m pytest tests/ -v \
             --html=reports/laporan_pengujian.html \
             --self-contained-html \
-            -v \
-            --tb=short \
-            2>&1 | tee reports/output_log.txt
+            --tb=short
 
-      # ── 8. Upload Artefak Laporan ─────────────────────────
-      - name: 📊 Upload Laporan Pengujian
-        if: always()   # tetap upload meskipun ada test yang gagal
+      # ── 7. Upload Laporan ─────────────────────────────────────────
+      - name: Upload Test Report
         uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: laporan-pengujian-selenium
-          path: |
-            reports/laporan_pengujian.html
-            reports/output_log.txt
+          name: laporan-pengujian-siakad
+          path: reports/laporan_pengujian.html
           retention-days: 30
