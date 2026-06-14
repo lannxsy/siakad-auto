@@ -9,14 +9,29 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-22.04   # pakai 22.04 agar php8.1 tersedia
+    runs-on: ubuntu-22.04
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: "11732"
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=5
 
     steps:
       # ── 1. Checkout ───────────────────────────────────────────────
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # ── 2. Setup Python ───────────────────────────────────────────
+      # ── 2. Import Database ────────────────────────────────────────
+      - name: Import Database SIAKAD
+        run: |
+          mysql -h 127.0.0.1 -u root -proot "11732" < 11732.sql
+
+      # ── 3. Setup Python ───────────────────────────────────────────
       - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
@@ -24,33 +39,24 @@ jobs:
 
       - name: Install Python dependencies
         run: |
-          python -m pip install --upgrade pip
           pip install pytest pytest-html selenium webdriver-manager requests
-
-      # ── 3. Setup MySQL ────────────────────────────────────────────
-      - name: Start MySQL
-        run: |
-          sudo systemctl start mysql
-          sudo mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY 'root'; FLUSH PRIVILEGES;"
-          sudo mysql -u root -proot -e "CREATE DATABASE IF NOT EXISTS \`11732\`;"
-          mysql -u root -proot 11732 < 11732.sql
 
       # ── 4. Setup PHP + Apache ─────────────────────────────────────
       - name: Install PHP 8.1 dan Apache
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y apache2 php8.1 php8.1-mysql php8.1-mysqli libapache2-mod-php8.1
+          sudo apt-get install -y apache2 php8.1 php8.1-mysql libapache2-mod-php8.1
 
       - name: Deploy SIAKAD ke Apache
         run: |
           sudo cp -r webakademik /var/www/html/webakademik
           sudo chown -R www-data:www-data /var/www/html/webakademik
-          sudo bash -c 'cat > /var/www/html/webakademik/koneksi.php << "PHPEOF"
+          sudo tee /var/www/html/webakademik/koneksi.php > /dev/null << 'PHPEOF'
           <?php
-          \$konek = mysqli_connect("127.0.0.1", "root", "root", "11732");
-          if (!\$konek) { die("Koneksi gagal: " . mysqli_connect_error()); }
+          $konek = mysqli_connect("127.0.0.1", "root", "root", "11732");
+          if (!$konek) { die("Koneksi gagal: " . mysqli_connect_error()); }
           ?>
-          PHPEOF'
+          PHPEOF
           sudo systemctl restart apache2
           sleep 2
           curl -s -o /dev/null -w "HTTP Status: %{http_code}\n" http://localhost/webakademik/login.php
@@ -58,9 +64,6 @@ jobs:
       # ── 5. Setup Chrome ───────────────────────────────────────────
       - name: Setup Chrome
         uses: browser-actions/setup-chrome@v1
-
-      - name: Verify Chrome
-        run: google-chrome --version
 
       # ── 6. Jalankan Test ──────────────────────────────────────────
       - name: Run Selenium Tests
