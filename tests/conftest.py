@@ -11,7 +11,7 @@ from selenium.webdriver.chrome.options import Options
 # ============================================================
 # KONFIGURASI — sesuaikan BASE_URL dengan environment Anda
 # ============================================================
-BASE_URL = "http://localhost/siakad_testing\webakademik"   # ganti jika beda
+BASE_URL = "http://localhost/webakademik"   # ganti jika beda
 
 # Kredensial disesuaikan dengan data di tabel `akun` pada 11732.sql
 # induk=1, password='guru', level='guru'
